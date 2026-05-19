@@ -7,7 +7,7 @@ services:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -60,6 +60,8 @@ services:
     ports:
       - "8502:8501"
     depends_on:
+      db:
+        condition: service_healthy
       api:
         condition: service_started
     volumes:
