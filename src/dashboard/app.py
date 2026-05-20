@@ -146,113 +146,114 @@ def main() -> None:
         enriched_rows = repository.get_enriched_reviews()
         if not enriched_rows:
             st.warning("Aucune donnee disponible.")
-            return
+        else:
+            df = pd.DataFrame(enriched_rows)
+            df["sentiment_label"] = df["sentiment_label"].fillna("unknown")
 
-        df = pd.DataFrame(enriched_rows)
-        df["sentiment_label"] = df["sentiment_label"].fillna("unknown")
-
-        matched_only = st.checkbox("Analyser uniquement les produits matches Open Beauty Facts", value=True)
-        min_reviews = int(
-            st.number_input(
-                "Seuil minimum d'avis par groupe",
-                min_value=10,
-                max_value=5000,
-                value=80,
-                step=10,
+            matched_only = st.checkbox("Analyser uniquement les produits matches Open Beauty Facts", value=True)
+            min_reviews = int(
+                st.number_input(
+                    "Seuil minimum d'avis par groupe",
+                    min_value=10,
+                    max_value=5000,
+                    value=80,
+                    step=10,
+                )
             )
-        )
 
-        analysis_df = df[df["matched"] == True] if matched_only else df
-        if analysis_df.empty:
-            st.info("Pas assez de donnees enrichies pour l'analyse. Lance l'enrichissement sur plus de produits.")
-            return
+            analysis_df = df[df["matched"] == True] if matched_only else df
+            if analysis_df.empty:
+                st.info(
+                    "Pas assez de donnees enrichies pour l'analyse. Lance l'enrichissement sur plus de produits."
+                )
+            else:
+                analysis_df["ingredients_text"] = analysis_df["ingredients_text"].fillna("").astype(str)
+                ingredients_lower = analysis_df["ingredients_text"].str.lower()
 
-        analysis_df["ingredients_text"] = analysis_df["ingredients_text"].fillna("").astype(str)
-        ingredients_lower = analysis_df["ingredients_text"].str.lower()
+                keyword_sets = {
+                    "fragrance": ["fragrance", "parfum", "perfume"],
+                    "alcohol": ["alcohol", "alcohol denat", "ethanol"],
+                    "retinol": ["retinol"],
+                    "niacinamide": ["niacinamide", "nicotinamide"],
+                    "hyaluronic_acid": ["hyaluronic", "sodium hyaluronate"],
+                    "vitamin_c": ["ascorbic", "vitamin c", "ascorbyl"],
+                    "salicylic_acid": ["salicylic", "bha"],
+                }
 
-        keyword_sets = {
-            "fragrance": ["fragrance", "parfum", "perfume"],
-            "alcohol": ["alcohol", "alcohol denat", "ethanol"],
-            "retinol": ["retinol"],
-            "niacinamide": ["niacinamide", "nicotinamide"],
-            "hyaluronic_acid": ["hyaluronic", "sodium hyaluronate"],
-            "vitamin_c": ["ascorbic", "vitamin c", "ascorbyl"],
-            "salicylic_acid": ["salicylic", "bha"],
-        }
+                for key, terms in keyword_sets.items():
+                    mask = False
+                    for t in terms:
+                        mask = mask | ingredients_lower.str.contains(t, regex=False)
+                    analysis_df[key] = mask
 
-        for key, terms in keyword_sets.items():
-            mask = False
-            for t in terms:
-                mask = mask | ingredients_lower.str.contains(t, regex=False)
-            analysis_df[key] = mask
-
-        analysis_df["is_negative"] = analysis_df["sentiment_label"].astype(str).str.lower().eq("negative")
-        analysis_df["is_positive"] = analysis_df["sentiment_label"].astype(str).str.lower().eq("positive")
-
-        rows = []
-        for key in keyword_sets.keys():
-            for flag_value, name in [(True, "avec"), (False, "sans")]:
-                part = analysis_df[analysis_df[key] == flag_value]
-                if len(part) < min_reviews:
-                    continue
-                avg_rating = float(pd.to_numeric(part["rating"], errors="coerce").mean())
-                neg_rate = float(part["is_negative"].mean())
-                pos_rate = float(part["is_positive"].mean())
-                rows.append(
-                    {
-                        "feature": key,
-                        "groupe": name,
-                        "avis": int(len(part)),
-                        "note_moy": round(avg_rating, 2) if avg_rating == avg_rating else None,
-                        "taux_negatif": round(neg_rate, 3),
-                        "taux_positif": round(pos_rate, 3),
-                    }
+                analysis_df["is_negative"] = (
+                    analysis_df["sentiment_label"].astype(str).str.lower().eq("negative")
+                )
+                analysis_df["is_positive"] = (
+                    analysis_df["sentiment_label"].astype(str).str.lower().eq("positive")
                 )
 
-        if rows:
-            feat_df = pd.DataFrame(rows).sort_values(["feature", "groupe"])
-            st.subheader("Impact ingredients (proxy)")
-            st.dataframe(feat_df, use_container_width=True)
+                rows = []
+                for key in keyword_sets.keys():
+                    for flag_value, name in [(True, "avec"), (False, "sans")]:
+                        part = analysis_df[analysis_df[key] == flag_value]
+                        if len(part) < min_reviews:
+                            continue
+                        avg_rating = float(pd.to_numeric(part["rating"], errors="coerce").mean())
+                        neg_rate = float(part["is_negative"].mean())
+                        pos_rate = float(part["is_positive"].mean())
+                        rows.append(
+                            {
+                                "feature": key,
+                                "groupe": name,
+                                "avis": int(len(part)),
+                                "note_moy": round(avg_rating, 2) if avg_rating == avg_rating else None,
+                                "taux_negatif": round(neg_rate, 3),
+                                "taux_positif": round(pos_rate, 3),
+                            }
+                        )
 
-            fig = px.bar(
-                feat_df,
-                x="feature",
-                y="taux_negatif",
-                color="groupe",
-                barmode="group",
-                title="Taux negatif par ingredient (avec/sans)",
-            )
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Pas assez d'avis par groupe pour calculer des stats (augmente l'enrichissement ou baisse le seuil).")
+                if rows:
+                    feat_df = pd.DataFrame(rows).sort_values(["feature", "groupe"])
+                    st.subheader("Impact ingredients (proxy)")
+                    st.dataframe(feat_df, use_container_width=True)
 
-        st.subheader("Top labels (Open Beauty Facts)")
-        labels_series = analysis_df["labels"].fillna("").astype(str)
-        labels_exploded = (
-            labels_series.str.split(",")
-            .explode()
-            .astype(str)
-            .str.strip()
-        )
-        labels_exploded = labels_exploded[labels_exploded.str.len() > 2]
-        if not labels_exploded.empty:
-            tmp = analysis_df[["review_id", "is_negative", "rating"]].copy()
-            tmp["label"] = labels_exploded.values
-            label_group = (
-                tmp.groupby("label", dropna=True)
-                .agg(
-                    avis=("review_id", "count"),
-                    taux_negatif=("is_negative", "mean"),
-                    note_moy=("rating", "mean"),
-                )
-                .reset_index()
-            )
-            label_group = label_group[label_group["avis"] >= min_reviews].sort_values(
-                ["taux_negatif", "avis"], ascending=[False, False]
-            )
-            st.dataframe(label_group.head(25), use_container_width=True)
-        else:
-            st.info("Aucun label exploitable pour l'instant (match rate trop faible ou labels vides).")
+                    fig = px.bar(
+                        feat_df,
+                        x="feature",
+                        y="taux_negatif",
+                        color="groupe",
+                        barmode="group",
+                        title="Taux negatif par ingredient (avec/sans)",
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info(
+                        "Pas assez d'avis par groupe pour calculer des stats (augmente l'enrichissement ou baisse le seuil)."
+                    )
+
+                st.subheader("Top labels (Open Beauty Facts)")
+                labels_series = analysis_df["labels"].fillna("").astype(str)
+                labels_exploded = labels_series.str.split(",").explode().astype(str).str.strip()
+                labels_exploded = labels_exploded[labels_exploded.str.len() > 2]
+                if not labels_exploded.empty:
+                    tmp = analysis_df[["review_id", "is_negative", "rating"]].copy()
+                    tmp["label"] = labels_exploded.values
+                    label_group = (
+                        tmp.groupby("label", dropna=True)
+                        .agg(
+                            avis=("review_id", "count"),
+                            taux_negatif=("is_negative", "mean"),
+                            note_moy=("rating", "mean"),
+                        )
+                        .reset_index()
+                    )
+                    label_group = label_group[label_group["avis"] >= min_reviews].sort_values(
+                        ["taux_negatif", "avis"], ascending=[False, False]
+                    )
+                    st.dataframe(label_group.head(25), use_container_width=True)
+                else:
+                    st.info("Aucun label exploitable pour l'instant (match rate trop faible ou labels vides).")
 
     with tab_chat:
         selected_product = st.selectbox(
