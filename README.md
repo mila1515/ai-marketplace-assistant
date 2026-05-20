@@ -53,6 +53,31 @@ docker compose run --rm etl
 
 Le pipeline sauvegarde aussi une version nettoyée du CSV dans `data/processed/` (en plus de la BDD).
 
+## Dashboard (Streamlit)
+
+Le dashboard sert à explorer rapidement les données, comprendre les problèmes récurrents et obtenir une synthèse actionnable par produit.
+
+Onglets principaux :
+
+- Dashboard : KPIs globaux (nb produits/avis, sentiment), catalogue et distributions.
+- Produit : fiche produit (note, volume d’avis), avis récents, synthèse et enrichissement (si disponible).
+- Insights : analyses simples basées sur l’enrichissement (ex: taux négatif “avec/sans” certains ingrédients).
+- Chat IA : Q&A sur un produit, réponses basées sur la synthèse + des extraits d’avis (OpenAI optionnel).
+- Enrichissement : lance la recherche Open Beauty Facts et affiche la couverture (combien de produits matchés).
+
+Exemples de questions à poser dans Chat IA :
+
+- “Quels sont les points faibles les plus cités pour ce produit ?”
+- “Qu’est-ce qui revient souvent dans les avis négatifs ?”
+- “Résume les avis en 5 bullet points.”
+- “Quelles attentes clients ne sont pas satisfaites ?”
+
+## Enrichissement (Open Beauty Facts) : le concept
+
+Objectif : compléter les produits Sephora avec des infos externes (labels, ingrédients) pour permettre des analyses “proxy” (ex: corréler certains ingrédients avec un taux négatif plus élevé).
+
+Important : Open Beauty Facts ne matche pas toujours les produits Sephora (couverture variable). Dans ce cas, l’enrichissement peut afficher `matched = 0` même si l’appel API fonctionne.
+
 ## API (optionnel)
 
 - `GET /health`
