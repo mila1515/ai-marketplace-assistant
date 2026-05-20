@@ -1,0 +1,87 @@
+services:
+  db:
+    image: postgres:13-alpine
+    restart: always
+    environment:
+      POSTGRES_DB: review_analysis
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: pass
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U user -d review_analysis"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  pgadmin:
+    image: dpage/pgadmin4
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    build: .
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+pg8000://user:pass@db:5432/review_analysis
+      VECTOR_STORE_DIR: /app/data/vectorstore
+      DATA_RAW_DIR: /app/data/raw
+      DATA_PROCESSED_DIR: /app/data/processed
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
+
+  dashboard:
+    build: .
+    restart: always
+    environment:
+      DATABASE_URL: postgresql+pg8000://user:pass@db:5432/review_analysis
+      VECTOR_STORE_DIR: /app/data/vectorstore
+      DATA_RAW_DIR: /app/data/raw
+      DATA_PROCESSED_DIR: /app/data/processed
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+    ports:
+      - "8502:8501"
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+    volumes:
+      - ./data:/app/data
+    command: streamlit run src/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
+
+  etl:
+    build: .
+    restart: "no"
+    environment:
+      DATABASE_URL: postgresql+pg8000://user:pass@db:5432/review_analysis
+      VECTOR_STORE_DIR: /app/data/vectorstore
+      DATA_RAW_DIR: /app/data/raw
+      DATA_PROCESSED_DIR: /app/data/processed
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    command: python -m src.scripts.run_etl data/raw/sephora_skindataall.csv
+
+volumes:
+  pgdata:
